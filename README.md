@@ -16,7 +16,7 @@ Audible conversations with AI-voiced figures and characters.
 
 ## Using the App
 
-1) Run `chatgpt_character.py'
+1) Run `chatgpt_character.py` followed by the character from the `voice_settings` variable within that file (`abe`, `clown`, etc.).
 
 2) Once it's running, press 4 to start the conversation, and Azure Speech-to-Text will listen to your microphone and transcribe it into text.
 
