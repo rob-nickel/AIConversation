@@ -78,7 +78,8 @@ def main():
             print("[red]Did not receive any input from the microphone!")
             continue
 
-        openai_result = openai_manager.chat_with_history(mic_result)
+        openai_result = openai_manager.chat_with_history(mic_result, "", "", True)
+        print(f"[green]\n{openai_result}\n")
 
         with open(BACKUP_FILE, "w") as file:
             file.write(str(openai_manager.chat_history))
