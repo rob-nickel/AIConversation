@@ -13,7 +13,7 @@ class SpeechToTextManager:
         # Creates an instance of a speech config with specified subscription key and service region.
         # Replace with your own subscription key and service region (e.g., "westus").
         try:
-            self.azure_speechconfig = speechsdk.SpeechConfig(subscription='23fa7961ea1443ba9a703e2b5c697a8d', region='eastus')#subscription=os.getenv('AZURE_TTS_KEY'), region=os.getenv('AZURE_TTS_REGION')) #TODO fill in Azure Key and Region
+            self.azure_speechconfig = speechsdk.SpeechConfig(subscription='', region='')#subscription=os.getenv('AZURE_TTS_KEY'), region=os.getenv('AZURE_TTS_REGION')) #TODO fill in Azure Key and Region
         except TypeError:
             exit("Set your AZURE_TTS_KEY or AZURE_TTS_REGION")
         

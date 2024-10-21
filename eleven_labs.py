@@ -1,4 +1,4 @@
-from elevenlabs import play, stream, save, generate, set_api_key, voices
+from elevenlabs import generate, stream, set_api_key, voices, play, save
 import time
 import os
 
@@ -11,7 +11,7 @@ class ElevenLabsManager:
 
     def __init__(self):
         all_voices = voices()
-        #print(f"\nAll ElevenLabs voices: \n{self.voices}\n")
+        #print(f"\nAll ElevenLabs voices: \n{all_voices}\n")
 
     def generate_audio(self, input_text, voice, model="eleven_monolingual_v1"):
         return generate(
@@ -20,11 +20,8 @@ class ElevenLabsManager:
           model=model
         )
 
-    # Convert text to speech, then save it to file. Returns the file path.
-    # Current model options (that I would use) are eleven_monolingual_v1 or eleven_turbo_v2
-    # eleven_turbo_v2 takes about 60% of the time that eleven_monolingual_v1 takes
-    # However eleven_monolingual_v1 seems to produce more variety and emphasis, whereas turbo feels more monotone. Turbo still sounds good, just a little less interesting
-    def text_to_audio(self, input_text, voice="Dave", save_as_wave=True, subdirectory="", model_id="eleven_monolingual_v1"):
+    # Convert text to speech, then save it to file. Returns the file path
+    def text_to_audio(self, input_text, voice="Dave", save_as_wave=True, subdirectory=""):
         audio = self.generate_audio(input_text, voice)
         if save_as_wave:
           file_name = f"___Msg{str(hash(input_text))}.wav"

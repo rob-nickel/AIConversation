@@ -2,25 +2,10 @@ import pygame
 import time
 import os
 import asyncio
-import subprocess
-import threading
-import keyboard
-import wave
-import pyaudio
 import soundfile as sf
 from mutagen.mp3 import MP3
-from pydub import AudioSegment
-from rich import print
 
 class AudioManager:
-
-    # Variables for recording audio from mic
-    is_recording = False
-    audio_frames = []
-    audio_format = pyaudio.paInt16
-    channels = 2
-    rate = 44100
-    chunk = 1024
 
     def __init__(self):
         # Use higher frequency to prevent audio glitching noises
@@ -35,28 +20,32 @@ class AudioManager:
         delete_file (bool): means file is deleted after playback (note that this shouldn't be used for multithreaded function calls)
         play_using_music (bool): means it will use Pygame Music, if false then uses pygame Sound instead
         """
-        #print(f"Playing file: {file_path}")
+        #print(f"Playing file with pygame: {file_path}")
+        print(f"Playing file")
         if not pygame.mixer.get_init(): # Reinitialize mixer if needed
             pygame.mixer.init(frequency=48000, buffer=1024) 
         if play_using_music:
             # Pygame Music can only play one file at a time
-            try:
-                pygame.mixer.music.load(file_path)
-                pygame.mixer.music.play()
-                converted = False
-            except:
-                converted_wav = "temp_convert.wav"
-                subprocess.run(["ffmpeg", "-y", "-i", file_path, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", converted_wav])
-                converted = True
-                pygame.mixer.music.load(converted_wav)
-                pygame.mixer.music.play()
+            pygame.mixer.music.load(file_path)
+            pygame.mixer.music.play()
         else:
             # Pygame Sound lets you play multiple sounds simultaneously
             pygame_sound = pygame.mixer.Sound(file_path) 
             pygame_sound.play()
 
         if sleep_during_playback:
-            file_length = self.get_audio_length(file_path)
+            # Calculate length of the file, based on the file format
+            _, ext = os.path.splitext(file_path) # Get the extension of this file
+            if ext.lower() == '.wav':
+                wav_file = sf.SoundFile(file_path)
+                file_length = wav_file.frames / wav_file.samplerate
+                wav_file.close()
+            elif ext.lower() == '.mp3':
+                mp3_file = MP3(file_path)
+                file_length = mp3_file.info.length
+            else:
+                print("Cannot play audio, unknown file type")
+                return
 
             # Sleep until file is done playing
             time.sleep(file_length)
@@ -70,8 +59,6 @@ class AudioManager:
                 try:  
                     os.remove(file_path)
                     print(f"Deleted the audio file.")
-                    if converted:
-                        os.remove(converted_wav)
                 except PermissionError:
                     print(f"Couldn't remove {file_path} because it is being used by another process.")
 
@@ -86,11 +73,6 @@ class AudioManager:
         pygame_sound = pygame.mixer.Sound(file_path) 
         pygame_sound.play()
 
-        # We must use asyncio.sleep() here because the normal time.sleep() will block the thread, even if it's in an async function
-        file_length = self.get_audio_length(file_path)
-        await asyncio.sleep(file_length)
-
-    def get_audio_length(self, file_path):
         # Calculate length of the file, based on the file format
         _, ext = os.path.splitext(file_path) # Get the extension of this file
         if ext.lower() == '.wav':
@@ -102,91 +84,63 @@ class AudioManager:
             file_length = mp3_file.info.length
         else:
             print("Cannot play audio, unknown file type")
-            file_length = 0
-        return file_length
+            return
 
-    def combine_audio_files(self, input_files):
-        # input_files is an array of file paths
-        output_file = os.path.join(os.path.abspath(os.curdir), f"___Msg{str(hash(' '.join(input_files)))}.wav")
-        combined = None
-        for file in input_files:
-            audio = AudioSegment.from_file(file)
-            if combined is None:
-                combined = audio
-            else:
-                combined += audio
-        if combined:
-            combined.export(output_file, format=os.path.splitext(output_file)[1][1:])
-            print(f"Combined file saved as: {output_file}")
-        else:
-            print("No files to combine.")
-        return output_file
+        # We must use asyncio.sleep() here because the normal time.sleep() will block the thread, even if it's in an async function
+        await asyncio.sleep(file_length)
+
+
+# TESTS
+if __name__ == '__main__':
+    audio_manager = AudioManager()
+    MP3_FILEPATH = "TestAudio_MP3.mp3"
+    WAV_FILEPATH = "TestAudio_WAV.wav"
+
+    if not os.path.exists(MP3_FILEPATH) or not os.path.exists(WAV_FILEPATH):
+        exit("Missing test audio")
     
-    def start_recording(self, stream):
-        self.audio_frames = []
-        while self.is_recording:
-            data = stream.read(self.chunk)
-            self.audio_frames.append(data)
-        print("[red]DONE RECORDING!")
+    # MP3 Test
+    audio_manager.play_audio(MP3_FILEPATH)
+    print("Sleeping until next file")
+    time.sleep(3)
 
-    def record_audio(self, end_recording_key='=', audio_device=None):
-        # Records audio from an audio input device.
-        # Example device names are "Line In (Realtek(R) Audio)", "Sample (TC-Helicon GoXLR)", or just leave empty to use default mic
-        # For some reason this doesn't work on the Broadcast GoXLR Mix, the other 3 GoXLR audio inputs all work fine.
-        # Both Azure Speech-to-Text AND this script have issues listening to Broadcast Stream Mix, so just ignore it.
-        audio = pyaudio.PyAudio()
-        
-        if audio_device is None:
-            # If no audio_device is provided, use the default mic
-            audio_stream = audio.open(format=self.audio_format, channels=self.channels, rate=self.rate, input=True, frames_per_buffer=self.chunk)
-        else:
-            # If an audio device was provided, find its index
-            device_index = None
-            for i in range(audio.get_device_count()):
-                dev_info = audio.get_device_info_by_index(i)
-                # print(dev_info['name'])
-                if audio_device in dev_info['name']:
-                    device_index = i
-                    # Some audio devices only support specific sample rates, so make sure to find a sample rate that's compatible with the device
-                    # This was necessary on certain GoXLR input but only sometimes. But this fixes the issues so w/e.
-                    supported_rates = [96000, 48000, 44100, 32000, 22050, 16000, 11025, 8000]
-                    for rate in supported_rates:
-                        try:
-                            if audio.is_format_supported(rate, input_device=device_index, input_channels=self.channels, input_format=self.audio_format):
-                                self.rate = rate
-                                break
-                        except ValueError:
-                            continue
-            if device_index is None:
-                raise ValueError(f"Device '{audio_device}' not found")
-            if self.rate is None:
-                raise ValueError(f"No supported sample rate found for device '{audio_device}'")
-            audio_stream = audio.open(format=self.audio_format, channels=self.channels, rate=self.rate, input=True, input_device_index=device_index, frames_per_buffer=self.chunk)
-                    
-        # Start recording an a second thread
-        self.is_recording = True
-        threading.Thread(target=self.start_recording, args=(audio_stream,)).start()
+    # Lots of MP3s at once test
+    x = 10
+    while x > 0:
+        audio_manager.play_audio(MP3_FILEPATH,False,False,False)
+        time.sleep(0.1)
+        x -= 1
+    print("Sleeping until next file")
+    time.sleep(3)
 
-        # Wait until end key is pressed
-        while True:
-            if keyboard.is_pressed(end_recording_key):
-                break
-            time.sleep(0.05) # Add this to reduce CPU usage
-        
-        self.is_recording = False
-        time.sleep(0.1) # Just for safety, no clue if this is needed
+    # Wav file tests
+    audio_manager.play_audio(WAV_FILEPATH)
+    print("Sleeping until next file")
+    time.sleep(3)
 
-        filename = f"mic_recording_{int(time.time())}.wav"
-        wave_file = wave.open(filename, 'wb')
-        wave_file.setnchannels(self.channels)
-        wave_file.setsampwidth(audio.get_sample_size(self.audio_format))
-        wave_file.setframerate(self.rate)
-        wave_file.writeframes(b''.join(self.audio_frames))
-        wave_file.close()
+    # Lots of WAVs at once test
+    x = 10
+    while x > 0:
+        audio_manager.play_audio(WAV_FILEPATH,False,False,False)
+        time.sleep(0.1)
+        x -= 1
+    print("Sleeping until next file")
+    time.sleep(3)
 
-        # Close the stream and PyAudio
-        audio_stream.stop_stream()
-        audio_stream.close()
-        audio.terminate()
+    # Async tests
+    async def async_audio_test():
+        await audio_manager.play_audio_async(MP3_FILEPATH)
+        time.sleep(1)
+        await audio_manager.play_audio_async(WAV_FILEPATH)
+        time.sleep(1)
+    print("Playing async audio")
+    asyncio.run(async_audio_test())
 
-        return filename
+    # Deleting file tests
+    # audio_manager.play_audio(MP3_FILEPATH, True, True)
+    # print("Sleeping until next file")
+    # time.sleep(3)
+    # audio_manager.play_audio(WAV_FILEPATH, True, True)
+    # print("Sleeping until next file")
+    # time.sleep(3)
+    
