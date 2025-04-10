@@ -36,9 +36,6 @@
         
         # Release the convo lock
         # (then optionally press a key to trigger a specific bot)
-
-    # If 4 pressed:
-        # Toggles "pause" flag - stops all other speakers from activating additional speakers
     
     # If 1 pressed:
         # Turns off "pause" flag
@@ -52,19 +49,28 @@
         # Turns off "pause" flag
         # Activates Speaker 3
 
+    # If 4 pressed:
+        # Toggles "pause" flag - stops all other speakers from activating additional speakers
+
+    # If 5 pressed:
+        # Stops generating new speakers, finishes playing all generated audio, ends program
+
 import threading
 import time
 import keyboard
 import random
 import logging
 import mutagen
+import os
 from rich import print
 
 from audio_player import AudioManager
 from eleven_labs import ElevenLabsManager
 from openai_chat import OpenAiManager
 from azure_speech_to_text import SpeechToTextManager
-from conversation_prompts import *
+from conversation_prompts.automation import SPEAKER_1
+from conversation_prompts.automation import SPEAKER_2
+from conversation_prompts.automation import SPEAKER_3
 
 elevenlabs_manager = ElevenLabsManager()
 audio_manager = AudioManager()
@@ -74,6 +80,7 @@ speaking_lock = threading.Lock()
 conversation_lock = threading.Lock()
 
 speakers_paused = False
+continue_program = True
 
 # Class that represents a single ChatGPT Speaker and its information
 class Speaker():
@@ -98,12 +105,14 @@ class Speaker():
         self.openai_manager.logging = False
 
     def run(self):
-        while True:
+        while continue_program:
             # Wait until we've been activated
             if not self.activated:
                 time.sleep(0.1)
+                if not continue_program:
+                    break
                 continue
-                
+
             self.activated = False
             if self.speaker_id == 1:
                 print(f"[italic purple] {self.name} has STARTED speaking.")
@@ -117,7 +126,7 @@ class Speaker():
             # This lock isn't necessary in theory, but for safety we will require this lock whenever updating any speaker's convo history
             with conversation_lock:
                 # Generate a response to the conversation
-                openai_answer = self.openai_manager.chat_with_history("Okay what is your response? Try to be as chaotic and bizarre and adult-humor oriented as possible. Again, 3 sentences maximum.")
+                openai_answer = self.openai_manager.chat_with_history("Okay what is your response? Try to be as specific and detail-oriented as possible. Again, 3 sentences maximum.")
                 openai_answer = openai_answer.replace("*", "")
                 if self.speaker_id == 1:
                     print(f"[purple] {openai_answer}")
@@ -135,10 +144,10 @@ class Speaker():
                         speaker.openai_manager.chat_history.append({"role": "user", "content": f"[{self.name}] {openai_answer}"})
                         speaker.openai_manager.save_chat_to_backup()
 
-            # Create audio response
-            tts_file = elevenlabs_manager.text_to_audio(openai_answer, self.voice, False)
-            audio_file_for_duration = mutagen.File(tts_file)
-            audio_duration = audio_file_for_duration.info.length
+                # Create audio response
+                tts_file = elevenlabs_manager.text_to_audio(openai_answer, self.voice, False)
+                audio_file_for_duration = mutagen.File(tts_file)
+                audio_duration = audio_file_for_duration.info.length
 
             # Wait here until the current speaker is finished
             with speaking_lock:
@@ -154,6 +163,8 @@ class Speaker():
                 audio_manager.play_audio(tts_file, False, True, True)
             
                 time.sleep(audio_duration + .25) # Wait one quarter second before the next person talks, otherwise their audio gets cut off
+                if os.path.exists(tts_file):
+                    os.remove(tts_file)
             if self.speaker_id == 1:
                 print(f"[italic purple] {self.name} has FINISHED speaking.")
             elif self.speaker_id == 2:
@@ -162,6 +173,7 @@ class Speaker():
                 print(f"[italic blue] {self.name} has FINISHED speaking.")
             else:
                 print(f"[italic white] {self.name} has FINISHED speaking.")  
+        print(f"[italic white] {self.name} has ended thread.")  
 
 # Class that handles human input, this thread is how you can manually activate or pause the other speakers
 class Human():
@@ -172,7 +184,8 @@ class Human():
 
     def run(self):
         global speakers_paused
-        while True:
+        global continue_program
+        while continue_program:
 
             # Speak into mic and add the dialogue to the chat history
             if keyboard.is_pressed('7'):
@@ -191,7 +204,7 @@ class Human():
                         continue
                     print(f"[teal]Got the following audio from User:\n{mic_result}")
 
-                    # Add Doug's response into all speakers chat history
+                    # Add User's response into all speakers chat history
                     for speaker in self.all_speakers:
                         speaker.openai_manager.chat_history.append({"role": "user", "content": f"[{self.name}] {mic_result}"})
                         speaker.openai_manager.save_chat_to_backup() # Tell the other speakers to save their chat history to their backup file
@@ -232,9 +245,19 @@ class Human():
                 speakers_paused = False
                 self.all_speakers[2].activated = True
                 time.sleep(1) # Wait for a bit to ensure you don't press this twice in a row
+
+            if keyboard.is_pressed('5'):
+                print("[bold red]Ending program")
+                speakers_paused = True
+                continue_program = False
+                with conversation_lock:
+                    print("Conversation lock obtained.")
+                    time.sleep(45)
+                    with speaking_lock:
+                        print("Speaking lock obtained. Ending soon.")
             
             time.sleep(0.05)
-                
+        print(f"[italic white] User has ended thread.")  
 
 
 def start_bot(bot):
@@ -268,9 +291,11 @@ if __name__ == '__main__':
     human_thread = threading.Thread(target=start_bot, args=(human,))
     human_thread.start()
 
-    print("[italic green]!!SPEAKERS ARE READY TO GO!!\nPress 1, 2, or 3 to activate an speaker.\tPress 7 to speak to the speakers.\tPress 4 to pause.")
+    print("[italic green]!!SPEAKERS ARE READY TO GO!!\nPress 1, 2, or 3 to activate an speaker.\tPress 7 to speak to the speakers.\tPress 4 to pause.\tPress 5 to quit.")
 
     speaker1_thread.join()
     speaker2_thread.join()
     speaker3_thread.join()
     human_thread.join()
+
+    print(f"[green] All threads ended.")  
